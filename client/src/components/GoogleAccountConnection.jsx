@@ -7,9 +7,11 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  FormControlLabel,
   IconButton,
   Link,
   Stack,
+  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -24,6 +26,12 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { API_BASE_URL } from '../utils/apiConfig.js';
+import {
+  authorizeServiceParam,
+  hasCalendarScope,
+  hasDeprecatedPhotosScope,
+  hasPhotosScope,
+} from '../utils/googleScopes.js';
 
 const initialDraft = { client_id: '', client_secret: '', redirect_uri: '' };
 
@@ -32,6 +40,7 @@ const GoogleAccountConnection = ({ onMessage }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [authorizing, setAuthorizing] = useState(false);
+  const [includePhotos, setIncludePhotos] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
   const [draft, setDraft] = useState(initialDraft);
   const [localError, setLocalError] = useState('');
@@ -79,6 +88,8 @@ const GoogleAccountConnection = ({ onMessage }) => {
   const oauth = status?.oauth || {};
   const account = status?.account || null;
   const credentialsReady = !!oauth.has_client_id && !!oauth.has_client_secret;
+  const calendarGranted = hasCalendarScope(account?.scopes);
+  const photosGranted = hasPhotosScope(account?.scopes);
 
   const saveCredentials = async () => {
     if (!encryptionReady) {
@@ -113,7 +124,8 @@ const GoogleAccountConnection = ({ onMessage }) => {
     setAuthorizing(true);
     setLocalError('');
     try {
-      const { data } = await axios.get(`${API_BASE_URL}/api/connections/google/authorize`);
+      const service = authorizeServiceParam(includePhotos);
+      const { data } = await axios.get(`${API_BASE_URL}/api/connections/google/authorize?service=${service}`);
       if (!data?.url) throw new Error('Authorize URL missing.');
       const width = 520;
       const height = 680;
@@ -158,6 +170,27 @@ const GoogleAccountConnection = ({ onMessage }) => {
     if (!text) return;
     try { navigator.clipboard.writeText(text); } catch (_) {}
   };
+
+  const photosToggle = (
+    <FormControlLabel
+      sx={{ alignItems: 'flex-start', ml: 0 }}
+      control={
+        <Switch
+          checked={includePhotos}
+          onChange={(e) => setIncludePhotos(e.target.checked)}
+          size="small"
+        />
+      }
+      label={
+        <Box>
+          <Typography variant="body2" component="span">Also request access to Google Photos</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
+            Only needed if you want Google Photos in the Photo widget.
+          </Typography>
+        </Box>
+      }
+    />
+  );
 
   if (loading) {
     return (
@@ -290,6 +323,8 @@ const GoogleAccountConnection = ({ onMessage }) => {
                 {account.name || 'Google user'}
               </Typography>
               <Chip label="Connected" size="small" color="success" variant="outlined" />
+              <Chip label="Calendar" size="small" color={calendarGranted ? 'success' : 'default'} variant="outlined" />
+              <Chip label="Photos" size="small" color={photosGranted ? 'success' : 'default'} variant="outlined" />
             </Stack>
             <Typography variant="body2" color="text.secondary">
               {account.email}
@@ -299,7 +334,23 @@ const GoogleAccountConnection = ({ onMessage }) => {
                 Connected {new Date(account.connected_at).toLocaleString()}
               </Typography>
             )}
-            {account.scopes && /photoslibrary\.readonly(\s|$)/.test(account.scopes) && !/photoslibrary\.readonly\.appcreateddata/.test(account.scopes) && (
+            {(!calendarGranted || !photosGranted) && (
+              <Stack spacing={1} sx={{ mt: 1.5 }}>
+                <Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={authorize}
+                    disabled={!credentialsReady || !encryptionReady || authorizing}
+                    startIcon={<Login />}
+                  >
+                    {authorizing ? 'Opening...' : 'Authorize with Google'}
+                  </Button>
+                </Box>
+                {photosToggle}
+              </Stack>
+            )}
+            {hasDeprecatedPhotosScope(account.scopes) && (
               <Alert severity="warning" sx={{ mt: 1 }}>
                 This account was authorized with the old Photos scope, which Google deprecated
                 on 2025-03-31. Disconnect and reconnect to grant the current
@@ -325,28 +376,37 @@ const GoogleAccountConnection = ({ onMessage }) => {
             border: '1px dashed var(--card-border)',
             borderRadius: 2,
             display: 'flex',
-            flexDirection: { xs: 'column', sm: 'row' },
-            alignItems: { sm: 'center' },
+            flexDirection: 'column',
             gap: 2,
           }}
         >
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-              No Google account connected
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Connecting your Google account enables Google Calendar (2-way sync) and Google Photos
-              as sources for the Calendar and Photo widgets.
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            onClick={authorize}
-            disabled={!credentialsReady || !encryptionReady || authorizing}
-            startIcon={<Login />}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', sm: 'row' },
+              alignItems: { sm: 'center' },
+              gap: 2,
+            }}
           >
-            {authorizing ? 'Opening...' : 'Authorize with Google'}
-          </Button>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                No Google account connected
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Connect a Google account to use Google Calendar in the Calendar widget, with two-way sync. Google Photos is optional and can be added later without reconnecting.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              onClick={authorize}
+              disabled={!credentialsReady || !encryptionReady || authorizing}
+              startIcon={<Login />}
+              sx={{ flexShrink: 0, alignSelf: { xs: 'stretch', sm: 'center' } }}
+            >
+              {authorizing ? 'Opening...' : 'Authorize with Google'}
+            </Button>
+          </Box>
+          {photosToggle}
         </Box>
       )}
     </Box>

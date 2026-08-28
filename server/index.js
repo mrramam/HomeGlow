@@ -174,6 +174,7 @@ const schemaMigrations = [
   { schemaId: 23, migrationPath: './migrations/schema23-userSortOrder', },
   { schemaId: 24, migrationPath: './migrations/schema24-choreIcon', },
   { schemaId: 25, migrationPath: './migrations/schema25-unifyCredentialEncryption', },
+  { schemaId: 26, migrationPath: './migrations/schema26-googleScopeSets', },
 ];
 
 const ALLOWED_SCHEDULE_DURATIONS = new Set(['day-of', 'until-completed', 'once-completed']);
@@ -4822,6 +4823,18 @@ fastify.post('/api/connections/google/config', async (request, reply) => {
 fastify.get('/api/connections/google/authorize', async (request, reply) => {
   if (demoBlocked(reply)) return;
   try {
+    const rawService = request.query && request.query.service;
+    const rawTrimmed = typeof rawService === 'string' ? rawService.trim() : '';
+    let service = Object.keys(googleConnection.SCOPE_SETS).join(',');
+    if (rawTrimmed) {
+      const serviceKeys = rawTrimmed.split(',').map((s) => s.trim()).filter(Boolean);
+      const valid = Object.keys(googleConnection.SCOPE_SETS);
+      const invalid = serviceKeys.filter((k) => !googleConnection.SCOPE_SETS[k]);
+      if (invalid.length) {
+        return reply.status(400).send({ error: `Invalid service "${invalid.join(', ')}". Must be one of: ${valid.join(', ')}.` });
+      }
+      service = serviceKeys.join(',');
+    }
     if (!isEncryptionConfigured()) {
       return reply.status(400).send({ error: 'ENCRYPTION_KEY is not configured on the server.' });
     }
@@ -4831,8 +4844,8 @@ fastify.get('/api/connections/google/authorize', async (request, reply) => {
     }
     const redirectUri = googleConnection.deriveRedirectUri(db, request);
     const returnUrl = request.query && request.query.return_url;
-    const state = googleConnection.createAuthState(db, redirectUri, returnUrl);
-    const url = googleConnection.buildAuthUrl(db, { redirectUri, state });
+    const state = googleConnection.createAuthState(db, redirectUri, returnUrl, service);
+    const url = googleConnection.buildAuthUrl(db, { redirectUri, state, service });
     return { url, redirect_uri: redirectUri };
   } catch (error) {
     console.error('Error building authorize URL:', error);
@@ -4869,12 +4882,15 @@ button:hover{background:#1d4ed8}</style></head>
     }
     const tokens = await googleConnection.exchangeCodeForTokens(db, { code, redirectUri: stateRow.redirect_uri });
     const userInfo = await googleConnection.fetchUserInfo(tokens.access_token);
+    const callbackService = stateRow.service || null;
+    const requestedScopes = googleConnection.resolveScopes(callbackService).join(' ');
     googleConnection.upsertGoogleAccount(db, {
       sub: userInfo.sub,
       email: userInfo.email,
       name: userInfo.name,
       picture: userInfo.picture,
       tokens,
+      requestedScopes,
     });
     return renderPage('Connected to Google', `Signed in as ${userInfo.email || userInfo.name || 'your Google account'}. You can close this window.`, true);
   } catch (error) {
