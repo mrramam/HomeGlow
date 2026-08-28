@@ -26,6 +26,12 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { API_BASE_URL } from '../utils/apiConfig.js';
+import {
+  authorizeServiceParam,
+  hasCalendarScope,
+  hasDeprecatedPhotosScope,
+  hasPhotosScope,
+} from '../utils/googleScopes.js';
 
 const initialDraft = { client_id: '', client_secret: '', redirect_uri: '' };
 
@@ -82,8 +88,8 @@ const GoogleAccountConnection = ({ onMessage }) => {
   const oauth = status?.oauth || {};
   const account = status?.account || null;
   const credentialsReady = !!oauth.has_client_id && !!oauth.has_client_secret;
-  const calendarGranted = !!(account?.scopes && /\/auth\/calendar(\s|$)/.test(account.scopes));
-  const photosGranted = !!(account?.scopes && /photoslibrary\.readonly\.appcreateddata/.test(account.scopes));
+  const calendarGranted = hasCalendarScope(account?.scopes);
+  const photosGranted = hasPhotosScope(account?.scopes);
 
   const saveCredentials = async () => {
     if (!encryptionReady) {
@@ -118,7 +124,7 @@ const GoogleAccountConnection = ({ onMessage }) => {
     setAuthorizing(true);
     setLocalError('');
     try {
-      const service = includePhotos ? 'calendar,photos' : 'calendar';
+      const service = authorizeServiceParam(includePhotos);
       const { data } = await axios.get(`${API_BASE_URL}/api/connections/google/authorize?service=${service}`);
       if (!data?.url) throw new Error('Authorize URL missing.');
       const width = 520;
@@ -344,7 +350,7 @@ const GoogleAccountConnection = ({ onMessage }) => {
                 {photosToggle}
               </Stack>
             )}
-            {account.scopes && /photoslibrary\.readonly(\s|$)/.test(account.scopes) && !/photoslibrary\.readonly\.appcreateddata/.test(account.scopes) && (
+            {hasDeprecatedPhotosScope(account.scopes) && (
               <Alert severity="warning" sx={{ mt: 1 }}>
                 This account was authorized with the old Photos scope, which Google deprecated
                 on 2025-03-31. Disconnect and reconnect to grant the current
