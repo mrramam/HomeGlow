@@ -255,7 +255,7 @@ that failed contract validation).
 | --- | --- | --- |
 | GET | `/api/connections/google/status` | Linked-account status. |
 | POST | `/api/connections/google/config` | Store OAuth client config. |
-| GET | `/api/connections/google/authorize` | Begin OAuth. |
+| GET | `/api/connections/google/authorize` | Begin OAuth. Optional `?service=calendar\|photos\|calendar,photos` selects which scope sets to request; omitted requests all of them. An unrecognised value is a 400. |
 | GET | `/api/connections/google/callback` | OAuth redirect handler. |
 | GET | `/api/connections/google/albums` | List Google Photos albums. |
 | GET | `/api/connections/google/calendars` | List Google calendars. |

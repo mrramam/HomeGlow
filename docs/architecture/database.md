@@ -55,6 +55,7 @@ run in ascending order. The registry lives in `schemaMigrations` in
 | 23 | `schema23-userSortOrder.js` | Adds `users.sort_order` (admin-chosen display order, issue #134), backfilled from `id` so existing households keep their current order. |
 | 24 | `schema24-choreIcon.js` | Adds `chores.icon` — an optional emoji shown on the dashboard card (issue #141). Stored as the literal character rather than a name, so the picker's bank can grow without a migration. NULL means no icon. |
 | 25 | `schema25-unifyCredentialEncryption.js` | Re-encrypts `calendar_sources.password` and `photo_sources.api_key`/`password`/`refresh_token` from the old AES-256-CBC scheme (which fell back to a key hardcoded in the repo) onto the auto-keyed AES-256-GCM store the rest of the app uses. Skips values already converted, so a replay is a no-op; a row that cannot be decrypted is logged by name and left rather than aborting the batch. |
+| 26 | `schema26-googleScopeSets.js` | Adds `google_oauth_states.service` — the comma-separated scope-set keys (`calendar`, `photos`) requested for that authorization. Carries the user's choice across the OAuth round trip so the callback records what was actually asked for rather than assuming every scope was granted. `NOT NULL DEFAULT 'calendar,photos'`, so rows written by an older build read back as the full set. |
 
 Each versioned migration runs inside a transaction, reads its context from
 `globalThis.__HOMEGLOW_SCHEMA_MIGRATION_CONTEXT`, and writes the new
