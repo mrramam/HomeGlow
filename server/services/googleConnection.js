@@ -1,14 +1,16 @@
 const crypto = require('crypto');
 const { encrypt, decrypt, isEncryptionConfigured } = require('../utils/encryption');
 
-const GOOGLE_SCOPES = [
-    'openid',
-    'email',
-    'profile',
-    'https://www.googleapis.com/auth/calendar',
+const BASE_SCOPES     = ['openid', 'email', 'profile'];
+const CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar'];
+const PHOTOS_SCOPES   = [
     'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
     'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
 ];
+const SCOPE_SETS = {
+    calendar: [...BASE_SCOPES, ...CALENDAR_SCOPES],
+    photos:   [...BASE_SCOPES, ...PHOTOS_SCOPES],
+};
 
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -80,33 +82,50 @@ function pruneOldStates(db) {
     ).run();
 }
 
-function createAuthState(db, redirectUri, returnUrl) {
+function createAuthState(db, redirectUri, returnUrl, service) {
     pruneOldStates(db);
     const state = crypto.randomBytes(24).toString('base64url');
     db.prepare(
-        'INSERT INTO google_oauth_states (state, redirect_uri, return_url) VALUES (?, ?, ?)'
-    ).run(state, redirectUri, returnUrl || null);
+        'INSERT INTO google_oauth_states (state, redirect_uri, return_url, service) VALUES (?, ?, ?, ?)'
+    ).run(state, redirectUri, returnUrl || null, service || null);
     return state;
 }
 
 function consumeAuthState(db, state) {
     pruneOldStates(db);
-    const row = db.prepare('SELECT state, redirect_uri, return_url FROM google_oauth_states WHERE state = ?').get(state);
+    const row = db.prepare('SELECT state, redirect_uri, return_url, service FROM google_oauth_states WHERE state = ?').get(state);
     if (row) {
         db.prepare('DELETE FROM google_oauth_states WHERE state = ?').run(state);
     }
     return row;
 }
 
-function buildAuthUrl(db, { redirectUri, state, loginHint }) {
+function resolveScopes(serviceParam) {
+    const trimmed = typeof serviceParam === 'string' ? serviceParam.trim() : '';
+    const keys = trimmed
+        ? trimmed.split(',').map((s) => s.trim()).filter((k) => k && SCOPE_SETS[k])
+        : Object.keys(SCOPE_SETS);
+    const resolvedKeys = keys.length ? keys : Object.keys(SCOPE_SETS);
+    const seen = new Set();
+    const scopes = [];
+    for (const key of resolvedKeys) {
+        for (const scope of SCOPE_SETS[key]) {
+            if (!seen.has(scope)) { seen.add(scope); scopes.push(scope); }
+        }
+    }
+    return scopes;
+}
+
+function buildAuthUrl(db, { redirectUri, state, loginHint, service }) {
     const { clientId } = getOAuthConfig(db);
     if (!clientId) throw new Error('Google Client ID is not configured.');
+    const scopes = resolveScopes(service);
 
     const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: GOOGLE_SCOPES.join(' '),
+        scope: scopes.join(' '),
         access_type: 'offline',
         include_granted_scopes: 'true',
         prompt: 'consent',
@@ -155,14 +174,14 @@ async function fetchUserInfo(accessToken) {
     return await res.json();
 }
 
-function upsertGoogleAccount(db, { sub, email, name, picture, tokens }) {
+function upsertGoogleAccount(db, { sub, email, name, picture, tokens, requestedScopes }) {
     const existing = db.prepare('SELECT id, refresh_token_enc FROM google_accounts WHERE google_sub = ?').get(sub);
     const expiresInSec = tokens.expires_in || 3600;
     const expiry = new Date(Date.now() + expiresInSec * 1000).toISOString();
 
     const accessEnc = encrypt(tokens.access_token);
     const refreshEnc = tokens.refresh_token ? encrypt(tokens.refresh_token) : (existing ? existing.refresh_token_enc : null);
-    const scopes = tokens.scope || GOOGLE_SCOPES.join(' ');
+    const scopes = tokens.scope || requestedScopes || SCOPE_SETS.calendar.join(' ');
 
     if (existing) {
         db.prepare(`
@@ -290,7 +309,8 @@ function createGoogleFetch(apiBase, serviceLabel) {
 }
 
 module.exports = {
-    GOOGLE_SCOPES,
+    SCOPE_SETS,
+    resolveScopes,
     getOAuthStatus,
     saveOAuthConfig,
     clearOAuthSecret,
