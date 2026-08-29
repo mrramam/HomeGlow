@@ -217,7 +217,7 @@ const CalendarWidget = ({
   const [viewMode, setViewMode] = useState('month');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [eventColors, setEventColors] = useState({ ...DEFAULT_CALENDAR_EVENT_COLORS });
-  // Idle auto-return (issue #35): 0 means DISABLED, not "return instantly".
+  // Idle auto-return: 0 means DISABLED, not "return instantly".
   // The raw input string lets the settings field accept an empty box and
   // parse it as disabled without snapping back to a number on every keystroke.
   const [idleReturnMinutes, setIdleReturnMinutes] = useState(DEFAULT_IDLE_RETURN_MINUTES);
@@ -467,7 +467,7 @@ const CalendarWidget = ({
     markActivity();
   };
 
-  // Idle auto-return (issue #35). Any user interaction bumps activityTick,
+  // Idle auto-return. Any user interaction bumps activityTick,
   // which restarts the countdown; unmounting or a config change clears the
   // pending timeout via the cleanup below (a leak on a wall display that runs
   // for months would be a real bug, not a theoretical one). While the browser
@@ -1270,8 +1270,7 @@ const CalendarWidget = ({
           >
             <ChevronLeft />
           </IconButton>
-          {/* The period label doubles as the go-to-today control (issue #35
-              follow-up): on a phone this is the only Today affordance, and on
+          {/* The period label doubles as the go-to-today control: on a phone this is the only Today affordance, and on
               desktop the icon button below keeps it discoverable. Disabled
               when already on today so it neither reacts nor advertises. */}
           <Tooltip
