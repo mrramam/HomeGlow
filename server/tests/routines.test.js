@@ -307,6 +307,20 @@ test('autocomplete endpoint merges step titles and chore titles', async () => {
     assert.equal(step.icon, '🪥');
 });
 
+test('unticking a step not in the routine returns 404', async () => {
+    const userId = await createUser('routine-untick-nonmember');
+    const { routineId } = await createRoutineWithSteps(userId, 'Nonmember', ['Step A']);
+
+    // Create a second routine with its own step; use that step's id against the first routine.
+    const { stepIds: otherStepIds } = await createRoutineWithSteps(userId, 'Other', ['Step B']);
+    const foreignStepId = otherStepIds[0];
+
+    const res = await api(`/api/routines/${routineId}/steps/${foreignStepId}/tick`, {
+        method: 'DELETE',
+    });
+    assert.equal(res.status, 404, 'untick of a non-member step must be 404');
+});
+
 test('routine feature does not alter chore-history rows for regular chores', async () => {
     // Regression guard against accidentally coupling routines into the chore
     // completion path: a plain chore completion must still write a single

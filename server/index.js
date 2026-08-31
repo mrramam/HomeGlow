@@ -3103,6 +3103,17 @@ function loadStepOr404(stepId, reply) {
   return step;
 }
 
+function assertRoutineMemberOr404(routineId, stepId, reply) {
+  const membership = db.prepare(
+    'SELECT id FROM routine_steps WHERE routine_id = ? AND step_id = ?'
+  ).get(routineId, stepId);
+  if (!membership) {
+    reply.status(404).send({ error: 'Step is not in this routine' });
+    return null;
+  }
+  return membership;
+}
+
 function getRoutineSteps(routineId) {
   return db.prepare(`
     SELECT s.id, s.title, s.icon, rs.position
@@ -3424,12 +3435,7 @@ fastify.post('/api/routines/:routineId/steps/:stepId/tick', async (request, repl
     if (!assertTodayOr400(date, reply)) return;
     const routine = loadRoutineOr404(routineId, reply);
     if (!routine) return;
-    const membership = db.prepare(
-      'SELECT id FROM routine_steps WHERE routine_id = ? AND step_id = ?'
-    ).get(routineId, stepId);
-    if (!membership) {
-      return reply.status(404).send({ error: 'Step is not in this routine' });
-    }
+    if (!assertRoutineMemberOr404(routineId, stepId, reply)) return;
     const userId = resolveRoutineUserId(routine, body, reply);
     if (userId === null) return;
 
@@ -3506,6 +3512,7 @@ fastify.delete('/api/routines/:routineId/steps/:stepId/tick', async (request, re
     if (!assertTodayOr400(date, reply)) return;
     const routine = loadRoutineOr404(routineId, reply);
     if (!routine) return;
+    if (!assertRoutineMemberOr404(routineId, stepId, reply)) return;
     // Never touch chore_history. A recorded completion is final; unticking a
     // step just clears the progress row so the routine card shows the box
     // empty again. Clams stay awarded, the streak stays advanced.
