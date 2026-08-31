@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Button, IconButton, Popover, ToggleButton, ToggleButtonGroup, TextField, Switch, Checkbox, FormControlLabel, Select, MenuItem, FormControl, InputLabel, Chip, Divider, CircularProgress, Alert, Tooltip } from '@mui/material';
 import { Settings, ViewModule, ViewWeek, ChevronLeft, ChevronRight, Add, Delete, Edit, Refresh, Remove, Sync, Schedule } from '@mui/icons-material';
 import moment from 'moment';
@@ -12,6 +12,9 @@ import { buildMergedDotColors, buildMergedDotBackground, describeMergedCalendars
 import useIsMobile from '../hooks/useIsMobile.js';
 import MonthDayCell from './MonthDayCell.jsx';
 import ColorPickerPopover from './ColorPickerPopover.jsx';
+import RoutineChecklist from './RoutineChecklist.jsx';
+import { computeStripPlacement, occurrencesForDate } from '../utils/routineHelpers.js';
+import { toDateKey } from '../utils/dateUtils.js';
 import {
   formatTime,
   formatShortDate,
@@ -191,7 +194,7 @@ const CalendarWidget = ({
   activeTab = 1,
   activeTabConfigJson = null,
 }) => {
-  const { t } = useTranslation(['calendar', 'common']);
+  const { t } = useTranslation(['calendar', 'common', 'routines']);
   const API_DEVICE_URL = getDeviceApiBase(API_BASE_URL);
   // On phones the week view reads best (issue #118), so it is the default
   // whenever the tab has no explicit view override. The month/week toggle
@@ -244,6 +247,12 @@ const CalendarWidget = ({
   const [syncStatus, setSyncStatus] = useState({});
   const [syncIntervals, setSyncIntervals] = useState({});
   const [isSyncing, setIsSyncing] = useState({});
+  // Per-device: routine strips on the week view (default ON). Sits in the
+  // same calendarWidgetSettings blob the eventColors already live in.
+  const [showRoutinesOnCalendar, setShowRoutinesOnCalendar] = useState(true);
+  const [routineOccurrences, setRoutineOccurrences] = useState([]);
+  const [openRoutine, setOpenRoutine] = useState(null); // full routine detail
+  const [openRoutineProgress, setOpenRoutineProgress] = useState(null);
   const monthViewDaysToShow = clampInteger(dayOfWeekSettings.monthViewDaysToShow, 1, 32, DEFAULT_MONTH_VIEW_DAYS_TO_SHOW);
   const monthViewDaysPerRow = clampInteger(dayOfWeekSettings.monthViewDaysPerRow, 1, 14, DEFAULT_MONTH_VIEW_DAYS_PER_ROW);
   const isRollingMonthView = dayOfWeekSettings.monthViewStart === 'today' || dayOfWeekSettings.monthViewStart === 'yesterday';
@@ -295,6 +304,70 @@ const CalendarWidget = ({
     fetchCalendarEvents();
   }, [eventsRangeKey]);
 
+  // Routine strips: WEEK VIEW ONLY. A month day-cell is small and four routine
+  // strips plus real events would push an appointment out of it, so month view
+  // renders nothing at all — not a dot, not a count. The range is derived
+  // inline (rather than by calling getWeekStartDate, defined later in the
+  // module) so this effect stays above the temporal-dead-zone line.
+  const routineWeekStartKey = useMemo(() => {
+    if (viewMode !== 'week' || !showRoutinesOnCalendar) return null;
+    const baseDate = moment(currentDate).startOf('day');
+    let startDate = baseDate.clone();
+    if (dayOfWeekSettings.weekViewStart === 'yesterday') {
+      startDate = baseDate.clone().subtract(1, 'day');
+    } else if (dayOfWeekSettings.weekViewStart !== 'today') {
+      const targetDay = WEEKDAY_INDEX[dayOfWeekSettings.weekViewStart];
+      if (typeof targetDay === 'number') {
+        startDate = baseDate.clone().startOf('week').add(targetDay, 'days');
+      }
+    }
+    return toDateKey(startDate);
+  }, [viewMode, showRoutinesOnCalendar, currentDate, dayOfWeekSettings.weekViewStart]);
+
+  useEffect(() => {
+    if (!routineWeekStartKey) {
+      setRoutineOccurrences([]);
+      return;
+    }
+    let cancelled = false;
+    const start = moment(routineWeekStartKey, 'YYYY-MM-DD');
+    const end = start.clone().add(6, 'days');
+    (async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/routine-occurrences`, {
+          params: { start: toDateKey(start), end: toDateKey(end) },
+        });
+        if (!cancelled) {
+          setRoutineOccurrences(Array.isArray(response.data) ? response.data : []);
+        }
+      } catch (err) {
+        console.error('Error fetching routine occurrences:', err);
+        if (!cancelled) setRoutineOccurrences([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [routineWeekStartKey]);
+
+  const openRoutineFromOccurrence = async (occurrence) => {
+    if (!occurrence?.routine_id) return;
+    try {
+      const [routinesResponse, progressResponse] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/routines`, { params: { visible: 1 } }),
+        axios.get(`${API_BASE_URL}/api/routines/${occurrence.routine_id}/progress`, {
+          params: { date: occurrence.date },
+        }),
+      ]);
+      const routines = Array.isArray(routinesResponse.data) ? routinesResponse.data : [];
+      const routine = routines.find((r) => r.id === occurrence.routine_id);
+      if (routine) {
+        setOpenRoutine(routine);
+        setOpenRoutineProgress(progressResponse.data || null);
+      }
+    } catch (err) {
+      console.error('Error opening routine from calendar:', err);
+    }
+  };
+
   useEffect(() => {
     const loadCalendarWidgetSettings = async () => {
       try {
@@ -310,6 +383,10 @@ const CalendarWidget = ({
             ...DEFAULT_CALENDAR_EVENT_COLORS,
             ...settings.eventColors,
           });
+        }
+        // Undefined -> default ON. Only an explicit false hides the strips.
+        if (typeof settings.showRoutines === 'boolean') {
+          setShowRoutinesOnCalendar(settings.showRoutines);
         }
       } catch (error) {
         console.error('Error loading calendar widget settings:', error);
@@ -331,6 +408,7 @@ const CalendarWidget = ({
         await axios.patch(`${API_DEVICE_URL}/settings`, {
           calendarWidgetSettings: {
             eventColors,
+            showRoutines: showRoutinesOnCalendar,
           },
         });
       } catch (error) {
@@ -344,6 +422,7 @@ const CalendarWidget = ({
     API_DEVICE_URL,
     calendarSettingsLoaded,
     eventColors,
+    showRoutinesOnCalendar,
   ]);
 
   useEffect(() => {
@@ -1515,7 +1594,11 @@ const CalendarWidget = ({
                 );
               };
 
-              const hasAnyEvents = day.multiDaySlotCount > 0 || day.allDaySingleEvents.length > 0 || day.timedEvents.length > 0;
+              const dayKey = toDateKey(day.date);
+              const routineStrips = showRoutinesOnCalendar
+                ? occurrencesForDate(routineOccurrences, dayKey)
+                : [];
+              const hasAnyEvents = day.multiDaySlotCount > 0 || day.allDaySingleEvents.length > 0 || day.timedEvents.length > 0 || routineStrips.length > 0;
 
               return (
                 <Box
@@ -1593,7 +1676,86 @@ const CalendarWidget = ({
                       );
                     })}
 
-                    {(day.multiDaySlotCount > 0 || day.allDaySingleEvents.length > 0) && day.timedEvents.length > 0 && (
+                    {routineStrips.map((occurrence, ridx) => {
+                      // Slim single-line strip. end_time is metadata, never
+                      // geometry: a two-hour block for something this thin
+                      // would waste vertical space and imply a span the
+                      // routines schema doesn't actually own.
+                      const placement = computeStripPlacement(occurrence);
+                      let timeLabel = '';
+                      if (placement.kind === 'timed') {
+                        timeLabel = placement.endTime
+                          ? `${placement.startTime}→${placement.endTime}`
+                          : placement.startTime;
+                      } else if (placement.kind === 'allDayByEnd') {
+                        timeLabel = t('routines:calendar.byEnd', { time: placement.endTime });
+                      }
+                      return (
+                        <Box
+                          key={`routine-${occurrence.routine_id}-${ridx}`}
+                          onClick={() => openRoutineFromOccurrence(occurrence)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              openRoutineFromOccurrence(occurrence);
+                            }
+                          }}
+                          aria-label={t('routines:calendar.openStripAria', { title: occurrence.summary })}
+                          sx={{
+                            mb: 0.5,
+                            minHeight: 22,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            px: 0.75,
+                            py: 0.25,
+                            border: '1px dashed var(--accent)',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            backgroundColor: 'rgba(var(--accent-rgb), 0.08)',
+                            '&:hover': { backgroundColor: 'rgba(var(--accent-rgb), 0.15)' },
+                          }}
+                        >
+                          {occurrence.icon && (
+                            <Box component="span" aria-hidden="true" sx={{ fontSize: `${displaySettings.textSize}px`, lineHeight: 1 }}>
+                              {occurrence.icon}
+                            </Box>
+                          )}
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontSize: `${displaySettings.textSize}px`,
+                              color: 'var(--text-color)',
+                              fontWeight: 600,
+                              flex: 1,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {occurrence.summary}
+                          </Typography>
+                          {timeLabel && (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                fontSize: `${Math.max(9, displaySettings.textSize - 2)}px`,
+                                color: 'var(--accent)',
+                                fontWeight: 700,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {timeLabel}
+                            </Typography>
+                          )}
+                        </Box>
+                      );
+                    })}
+
+                    {(day.multiDaySlotCount > 0 || day.allDaySingleEvents.length > 0 || routineStrips.length > 0) && day.timedEvents.length > 0 && (
                       <Box sx={{ borderTop: '1px solid var(--card-border)', mt: 0.5, mb: 0.5 }} />
                     )}
 
@@ -1661,6 +1823,34 @@ const CalendarWidget = ({
           </Box>
         </Box>
       )}
+
+      <Dialog
+        open={openRoutine != null}
+        onClose={() => { setOpenRoutine(null); setOpenRoutineProgress(null); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {openRoutine?.name || t('routines:widget.title')}
+        </DialogTitle>
+        <DialogContent dividers>
+          {openRoutine && (
+            <RoutineChecklist
+              routine={openRoutine}
+              progress={openRoutineProgress}
+              onProgressChange={(next) => setOpenRoutineProgress(next)}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => { setOpenRoutine(null); setOpenRoutineProgress(null); }}
+            variant="contained"
+          >
+            {t('common:actions.close')}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={showDayModal}
@@ -2078,6 +2268,14 @@ const CalendarWidget = ({
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
             When the same event appears on more than one calendar (even with slightly
             different titles), show it only once.
+          </Typography>
+
+          <FormControlLabel
+            control={<Switch checked={showRoutinesOnCalendar} onChange={(e) => setShowRoutinesOnCalendar(e.target.checked)} />}
+            label={t('routines:calendar.showRoutinesToggle')}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            {t('routines:calendar.showRoutinesHelp')}
           </Typography>
 
           <Divider sx={{ my: 2 }} />

@@ -1,0 +1,35 @@
+{
+  "widget": {
+    "title": "Routines",
+    "titleFor": "{{name}}'s routines",
+    "remainingChip": "{{count}} left",
+    "loadFailed": "Could not load routines.",
+    "nothingDue": "Nothing scheduled for {{name}} today.",
+    "nothingDueHint": "Enjoy the quiet time.",
+    "allDoneHeading": "All done, {{name}}!",
+    "allDoneSubtitle": "Every routine wrapped up for today.",
+    "notBound": "This tab isn't tied to a child yet.",
+    "notBoundHint": "Bind a child to this tab so their routines can show here.",
+    "openRoutineAria": "Open {{title}}",
+    "stepsProgress": "{{done}} of {{total}} steps",
+    "notFound": "This routine is no longer available."
+  },
+  "checklist": {
+    "doneToday": "Done today",
+    "progressLabel": "{{done}} of {{total}} steps done",
+    "progressAria": "Step progress: {{done}} of {{total}}",
+    "noSteps": "This routine has no steps yet.",
+    "tickAria": "Mark {{title}} done",
+    "untickAria": "Undo {{title}}",
+    "tickFailed": "Could not update this step. Please try again."
+  },
+  "calendar": {
+    "showRoutinesToggle": "Show routines on the week view",
+    "showRoutinesHelp": "Slim strips for each scheduled routine appear in the week view. The month view never shows them.",
+    "byEnd": "by {{time}}",
+    "openStripAria": "Open {{title}}"
+  },
+  "celebration": {
+    "streakMilestone": "{{count}}-day streak"
+  }
+}
