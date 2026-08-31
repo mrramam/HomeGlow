@@ -147,6 +147,19 @@ const RoutineWidget = ({
     void fetchAll();
   }, [refreshNonce, fetchAll]);
 
+  // Tracks which celebration kind (if any) this component currently holds.
+  // Only release on unmount when the ref confirms we are the holder — a bare
+  // unconditional release would clear another widget's live overlay.
+  const holdingKindRef = useRef(null);
+  useEffect(() => {
+    return () => {
+      if (holdingKindRef.current) {
+        releaseCelebration(holdingKindRef.current);
+        holdingKindRef.current = null;
+      }
+    };
+  }, []);
+
   const todaysOccurrences = useMemo(
     () => occurrencesForDate(occurrences, today),
     [occurrences, today],
@@ -182,6 +195,7 @@ const RoutineWidget = ({
 
     if (isMilestone) {
       if (acquireCelebration('prize')) {
+        holdingKindRef.current = 'prize';
         setShowPrizeCelebration({
           username: boundUser?.username || '',
           streak,
@@ -193,17 +207,20 @@ const RoutineWidget = ({
     }
 
     if (acquireCelebration('chore')) {
+      holdingKindRef.current = 'chore';
       setShowChoreConfetti(true);
     }
   }, [boundUser]);
 
   const dismissChoreConfetti = useCallback(() => {
     setShowChoreConfetti(false);
+    holdingKindRef.current = null;
     releaseCelebration('chore');
   }, []);
 
   const dismissPrizeCelebration = useCallback(() => {
     setShowPrizeCelebration(null);
+    holdingKindRef.current = null;
     releaseCelebration('prize');
   }, []);
 

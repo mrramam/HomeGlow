@@ -107,8 +107,26 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
   const longPressFiredRef = useRef(false);
   const longPressStartRef = useRef(null);
   const choreMenuOpenedAtRef = useRef(0);
+  // Track which celebration kinds this component holds so unmount cleanup can
+  // release only when we are the rightful owner — an unconditional release
+  // would clear a lock held by a different widget instance.
+  const prizeHoldingRef = useRef(false);
+  const choreHoldingRef = useRef(false);
 
   const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+  useEffect(() => {
+    return () => {
+      if (prizeHoldingRef.current) {
+        releaseCelebration('prize');
+        prizeHoldingRef.current = false;
+      }
+      if (choreHoldingRef.current) {
+        releaseCelebration('chore');
+        choreHoldingRef.current = false;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -192,6 +210,7 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
       // milestone reaching for the same overlay must not stack behind us,
       // and a smaller wordless burst gets suppressed while this plays.
       if (acquireCelebration('prize')) {
+        prizeHoldingRef.current = true;
         setCelebration({
           username: participantNames.length > 1
             ? participantNames.join(' & ')
@@ -236,6 +255,7 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
     // display wins the slot; the smaller wordless burst is suppressed rather
     // than stacked behind it.
     if (!acquireCelebration('chore')) return;
+    choreHoldingRef.current = true;
 
     setChoreCelebration({ id: key });
     if (soundEnabled) {
@@ -1518,6 +1538,7 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
             prizeName={celebration.prizeName}
             onDismiss={() => {
               setCelebration(null);
+              prizeHoldingRef.current = false;
               releaseCelebration('prize');
             }}
           />
@@ -1528,6 +1549,7 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
             key={choreCelebration.id}
             onDismiss={() => {
               setChoreCelebration(null);
+              choreHoldingRef.current = false;
               releaseCelebration('chore');
             }}
           />
