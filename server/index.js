@@ -118,6 +118,10 @@ const {
   decryptLegacy,
 } = require('./utils/encryption');
 const { httpsAgentFor, isCertificateVerificationSkipped } = require('./utils/outboundTls');
+const {
+  computeStreakForCompletion,
+  enumerateScheduledDates,
+} = require('./utils/routineStreak');
 
 // Certificate policy for every outbound axios request, decided per URL from the
 // target's address class (issue #139). Registered on the default axios instance,
@@ -174,6 +178,9 @@ const schemaMigrations = [
   { schemaId: 23, migrationPath: './migrations/schema23-userSortOrder', },
   { schemaId: 24, migrationPath: './migrations/schema24-choreIcon', },
   { schemaId: 25, migrationPath: './migrations/schema25-unifyCredentialEncryption', },
+  // Skip 26 — reserved for an unsubmitted branch. Duplicate numbering would
+  // desynchronize installs that ran that branch's migration first.
+  { schemaId: 27, migrationPath: './migrations/schema27-routines', },
 ];
 
 const ALLOWED_SCHEDULE_DURATIONS = new Set(['day-of', 'until-completed', 'once-completed']);
@@ -2981,6 +2988,624 @@ fastify.delete('/api/chore-history/:id', async (request, reply) => {
   } catch (error) {
     console.error('Error deleting history entry:', error);
     reply.status(500).send({ error: 'Failed to delete history entry' });
+  }
+});
+
+// --- Routines ---
+// A routine is a named, ordered checklist a kid works through — 'Get your
+// school day started': make bed, brush teeth, pack backpack. It sits BESIDE
+// chores and is deliberately NOT built from them: no chore_schedules row, no
+// chore query touched. The only chore-side reach is the append-only
+// chore_history ledger, which gets one kind='routine' row per completion (and
+// a kind='streak' row when the streak hits a bonus multiple).
+
+const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function normalizeTimeOfDay(value) {
+  if (value === undefined || value === null || value === '') {
+    return { valid: true, value: null };
+  }
+  const normalized = String(value).trim();
+  if (!HH_MM_REGEX.test(normalized)) {
+    return { valid: false, value: null };
+  }
+  return { valid: true, value: normalized };
+}
+
+function normalizeRoutineIcon(icon) {
+  if (icon === undefined || icon === null) return null;
+  const trimmed = String(icon).trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, CHORE_ICON_MAX_LENGTH);
+}
+
+function validateRoutineBody(body, reply) {
+  const source = body || {};
+  const name = typeof source.name === 'string' ? source.name.trim() : '';
+  if (!name) {
+    reply.status(400).send({ error: 'name is required' });
+    return null;
+  }
+  if (!source.crontab || typeof source.crontab !== 'string') {
+    reply.status(400).send({ error: 'crontab is required' });
+    return null;
+  }
+  try {
+    CronExpressionParser.parse(source.crontab);
+  } catch (e) {
+    reply.status(400).send({ error: 'Invalid crontab expression: ' + e.message });
+    return null;
+  }
+  const startTime = normalizeTimeOfDay(source.start_time);
+  if (!startTime.valid) {
+    reply.status(400).send({ error: 'start_time must be in HH:MM 24-hour format' });
+    return null;
+  }
+  const endTime = normalizeTimeOfDay(source.end_time);
+  if (!endTime.valid) {
+    reply.status(400).send({ error: 'end_time must be in HH:MM 24-hour format' });
+    return null;
+  }
+  const streakEvery = source.streak_bonus_every === undefined || source.streak_bonus_every === null
+    ? 0
+    : Number.parseInt(source.streak_bonus_every, 10);
+  if (!Number.isInteger(streakEvery) || streakEvery < 0) {
+    reply.status(400).send({ error: 'streak_bonus_every must be a non-negative integer' });
+    return null;
+  }
+  const streakClams = source.streak_bonus_clams === undefined || source.streak_bonus_clams === null
+    ? 0
+    : Number.parseInt(source.streak_bonus_clams, 10);
+  if (!Number.isInteger(streakClams) || streakClams < 0) {
+    reply.status(400).send({ error: 'streak_bonus_clams must be a non-negative integer' });
+    return null;
+  }
+  return {
+    name,
+    icon: normalizeRoutineIcon(source.icon),
+    user_id: source.user_id === undefined || source.user_id === null || source.user_id === ''
+      ? null
+      : Number.parseInt(source.user_id, 10),
+    visible: source.visible === undefined ? 1 : (source.visible ? 1 : 0),
+    crontab: source.crontab,
+    start_time: startTime.value,
+    end_time: endTime.value,
+    streak_bonus_every: streakEvery,
+    streak_bonus_clams: streakClams,
+  };
+}
+
+function validateStepBody(body, reply) {
+  const source = body || {};
+  const title = typeof source.title === 'string' ? source.title.trim() : '';
+  if (!title) {
+    reply.status(400).send({ error: 'title is required' });
+    return null;
+  }
+  return { title, icon: normalizeRoutineIcon(source.icon) };
+}
+
+function loadRoutineOr404(routineId, reply) {
+  const routine = db.prepare('SELECT * FROM routines WHERE id = ?').get(routineId);
+  if (!routine) {
+    reply.status(404).send({ error: 'Routine not found' });
+    return null;
+  }
+  return routine;
+}
+
+function loadStepOr404(stepId, reply) {
+  const step = db.prepare('SELECT * FROM steps WHERE id = ?').get(stepId);
+  if (!step) {
+    reply.status(404).send({ error: 'Step not found' });
+    return null;
+  }
+  return step;
+}
+
+function getRoutineSteps(routineId) {
+  return db.prepare(`
+    SELECT s.id, s.title, s.icon, rs.position
+    FROM routine_steps rs
+    JOIN steps s ON s.id = rs.step_id
+    WHERE rs.routine_id = ?
+    ORDER BY rs.position, rs.id
+  `).all(routineId);
+}
+
+fastify.get('/api/routines', async (request, reply) => {
+  try {
+    const { user_id, visible } = request.query;
+    const conditions = [];
+    const params = [];
+    if (user_id !== undefined) {
+      conditions.push('user_id = ?');
+      params.push(user_id);
+    }
+    if (visible !== undefined) {
+      conditions.push('visible = ?');
+      params.push(visible === 'true' || visible === '1' ? 1 : 0);
+    }
+    let query = 'SELECT * FROM routines';
+    if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+    query += ' ORDER BY id';
+    const routines = db.prepare(query).all(...params);
+    return routines.map((r) => ({ ...r, steps: getRoutineSteps(r.id) }));
+  } catch (error) {
+    console.error('Error fetching routines:', error);
+    reply.status(500).send({ error: 'Failed to fetch routines' });
+  }
+});
+
+fastify.get('/api/routines/:id', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const routine = loadRoutineOr404(id, reply);
+    if (!routine) return;
+    return { ...routine, steps: getRoutineSteps(id) };
+  } catch (error) {
+    console.error('Error fetching routine:', error);
+    reply.status(500).send({ error: 'Failed to fetch routine' });
+  }
+});
+
+fastify.post('/api/routines', async (request, reply) => {
+  const parsed = validateRoutineBody(request.body, reply);
+  if (!parsed) return;
+  try {
+    const info = db.prepare(`
+      INSERT INTO routines
+        (user_id, name, icon, visible, crontab, start_time, end_time,
+         streak_bonus_every, streak_bonus_clams)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      parsed.user_id,
+      parsed.name,
+      parsed.icon,
+      parsed.visible,
+      parsed.crontab,
+      parsed.start_time,
+      parsed.end_time,
+      parsed.streak_bonus_every,
+      parsed.streak_bonus_clams,
+    );
+    return { id: info.lastInsertRowid, success: true };
+  } catch (error) {
+    console.error('Error creating routine:', error);
+    reply.status(500).send({ error: 'Failed to create routine' });
+  }
+});
+
+fastify.patch('/api/routines/:id', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const routine = loadRoutineOr404(id, reply);
+    if (!routine) return;
+    const parsed = validateRoutineBody({ ...routine, ...request.body }, reply);
+    if (!parsed) return;
+    // Persisted streak is NOT recomputed against the new crontab (spec:
+    // "changing a routine's schedule mid-streak keeps the streak"). Whatever
+    // count was reached under the old cadence carries; the next completion
+    // will grow or reset it using the new schedule.
+    db.prepare(`
+      UPDATE routines SET
+        user_id = ?, name = ?, icon = ?, visible = ?, crontab = ?,
+        start_time = ?, end_time = ?,
+        streak_bonus_every = ?, streak_bonus_clams = ?
+      WHERE id = ?
+    `).run(
+      parsed.user_id,
+      parsed.name,
+      parsed.icon,
+      parsed.visible,
+      parsed.crontab,
+      parsed.start_time,
+      parsed.end_time,
+      parsed.streak_bonus_every,
+      parsed.streak_bonus_clams,
+      id,
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating routine:', error);
+    reply.status(500).send({ error: 'Failed to update routine' });
+  }
+});
+
+fastify.delete('/api/routines/:id', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const info = db.prepare('DELETE FROM routines WHERE id = ?').run(id);
+    if (info.changes === 0) {
+      return reply.status(404).send({ error: 'Routine not found' });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting routine:', error);
+    reply.status(500).send({ error: 'Failed to delete routine' });
+  }
+});
+
+// --- Steps (shared library) ---
+fastify.get('/api/steps', async (request, reply) => {
+  try {
+    return db.prepare('SELECT * FROM steps ORDER BY title').all();
+  } catch (error) {
+    console.error('Error fetching steps:', error);
+    reply.status(500).send({ error: 'Failed to fetch steps' });
+  }
+});
+
+fastify.post('/api/steps', async (request, reply) => {
+  const parsed = validateStepBody(request.body, reply);
+  if (!parsed) return;
+  try {
+    const info = db.prepare('INSERT INTO steps (title, icon) VALUES (?, ?)').run(parsed.title, parsed.icon);
+    return { id: info.lastInsertRowid, success: true };
+  } catch (error) {
+    console.error('Error creating step:', error);
+    reply.status(500).send({ error: 'Failed to create step' });
+  }
+});
+
+fastify.patch('/api/steps/:id', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const step = loadStepOr404(id, reply);
+    if (!step) return;
+    const parsed = validateStepBody({ ...step, ...request.body }, reply);
+    if (!parsed) return;
+    db.prepare('UPDATE steps SET title = ?, icon = ? WHERE id = ?').run(parsed.title, parsed.icon, id);
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating step:', error);
+    reply.status(500).send({ error: 'Failed to update step' });
+  }
+});
+
+fastify.delete('/api/steps/:id', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const info = db.prepare('DELETE FROM steps WHERE id = ?').run(id);
+    if (info.changes === 0) {
+      return reply.status(404).send({ error: 'Step not found' });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting step:', error);
+    reply.status(500).send({ error: 'Failed to delete step' });
+  }
+});
+
+// --- Routine membership ---
+// Add an existing step to a routine, OR create a new step inline
+// ({title, icon}) and add it. Position defaults to end-of-list.
+fastify.post('/api/routines/:id/steps', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const routine = loadRoutineOr404(id, reply);
+    if (!routine) return;
+    const body = request.body || {};
+    let stepId = body.step_id;
+    if (stepId === undefined || stepId === null) {
+      const parsed = validateStepBody(body, reply);
+      if (!parsed) return;
+      const info = db.prepare('INSERT INTO steps (title, icon) VALUES (?, ?)').run(parsed.title, parsed.icon);
+      stepId = info.lastInsertRowid;
+    } else {
+      const step = loadStepOr404(stepId, reply);
+      if (!step) return;
+    }
+    const existing = db.prepare('SELECT id FROM routine_steps WHERE routine_id = ? AND step_id = ?').get(id, stepId);
+    if (existing) {
+      return reply.status(409).send({ error: 'Step already in routine' });
+    }
+    let position = Number.parseInt(body.position, 10);
+    if (!Number.isInteger(position)) {
+      const max = db.prepare('SELECT MAX(position) AS max FROM routine_steps WHERE routine_id = ?').get(id);
+      position = (max?.max ?? -1) + 1;
+    }
+    const info = db.prepare('INSERT INTO routine_steps (routine_id, step_id, position) VALUES (?, ?, ?)').run(id, stepId, position);
+    return { id: info.lastInsertRowid, step_id: stepId, position, success: true };
+  } catch (error) {
+    console.error('Error adding step to routine:', error);
+    reply.status(500).send({ error: 'Failed to add step to routine' });
+  }
+});
+
+fastify.patch('/api/routines/:id/steps/reorder', async (request, reply) => {
+  const { id } = request.params;
+  try {
+    const routine = loadRoutineOr404(id, reply);
+    if (!routine) return;
+    const { orderedStepIds } = request.body || {};
+    if (!Array.isArray(orderedStepIds) || orderedStepIds.some((s) => !Number.isInteger(s))) {
+      return reply.status(400).send({ error: 'orderedStepIds must be an array of step ids' });
+    }
+    const current = db.prepare('SELECT step_id FROM routine_steps WHERE routine_id = ?').all(id).map((r) => r.step_id);
+    const currentSet = new Set(current);
+    const providedSet = new Set(orderedStepIds);
+    if (currentSet.size !== providedSet.size || [...currentSet].some((s) => !providedSet.has(s))) {
+      return reply.status(400).send({ error: 'orderedStepIds must list every step in the routine exactly once' });
+    }
+    const stmt = db.prepare('UPDATE routine_steps SET position = ? WHERE routine_id = ? AND step_id = ?');
+    const tx = db.transaction(() => {
+      orderedStepIds.forEach((stepId, idx) => stmt.run(idx, id, stepId));
+    });
+    tx();
+    return { success: true };
+  } catch (error) {
+    console.error('Error reordering routine steps:', error);
+    reply.status(500).send({ error: 'Failed to reorder routine steps' });
+  }
+});
+
+fastify.delete('/api/routines/:id/steps/:stepId', async (request, reply) => {
+  const { id, stepId } = request.params;
+  try {
+    const info = db.prepare('DELETE FROM routine_steps WHERE routine_id = ? AND step_id = ?').run(id, stepId);
+    if (info.changes === 0) {
+      return reply.status(404).send({ error: 'Step is not in this routine' });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error removing step from routine:', error);
+    reply.status(500).send({ error: 'Failed to remove step from routine' });
+  }
+});
+
+// --- Progress: tick / untick a step for a date ---
+// The wall display is likely to double-tap. Both the tick (INSERT OR IGNORE
+// on UNIQUE(routine_id, step_id, date)) and the completion write (INSERT OR
+// IGNORE on the partial unique index) are idempotent — the second call is
+// silently a no-op rather than a duplicate ledger row.
+
+function resolveRoutineUserId(routine, body, reply) {
+  const provided = body && body.user_id !== undefined && body.user_id !== null && body.user_id !== ''
+    ? Number.parseInt(body.user_id, 10)
+    : routine.user_id;
+  if (!Number.isInteger(provided)) {
+    reply.status(400).send({ error: 'user_id is required (routine has no owner)' });
+    return null;
+  }
+  return provided;
+}
+
+function assertTodayOr400(dateStr, reply) {
+  const today = getTodayLocalDateString();
+  if (dateStr !== today) {
+    reply.status(400).send({ error: 'Only today\'s occurrence is completable' });
+    return false;
+  }
+  return true;
+}
+
+function currentProgress(routineId, dateStr) {
+  const total = db.prepare('SELECT COUNT(*) AS c FROM routine_steps WHERE routine_id = ?').get(routineId).c;
+  const done = db.prepare('SELECT COUNT(*) AS c FROM routine_progress WHERE routine_id = ? AND date = ?').get(routineId, dateStr).c;
+  return { total, done, complete: total > 0 && done >= total };
+}
+
+fastify.get('/api/routines/:id/progress', async (request, reply) => {
+  const { id } = request.params;
+  const date = request.query.date || getTodayLocalDateString();
+  try {
+    const routine = loadRoutineOr404(id, reply);
+    if (!routine) return;
+    const ticked = db.prepare(
+      'SELECT step_id FROM routine_progress WHERE routine_id = ? AND date = ?'
+    ).all(id, date).map((r) => r.step_id);
+    const status = currentProgress(id, date);
+    const ledger = db.prepare(
+      "SELECT id FROM chore_history WHERE routine_id = ? AND date = ? AND kind = 'routine'"
+    ).get(id, date);
+    return {
+      routine_id: Number.parseInt(id, 10),
+      date,
+      ticked_step_ids: ticked,
+      total_steps: status.total,
+      done_steps: status.done,
+      complete: status.complete,
+      recorded_completion: !!ledger,
+      current_streak: routine.current_streak,
+      last_completion_date: routine.last_completion_date,
+    };
+  } catch (error) {
+    console.error('Error fetching routine progress:', error);
+    reply.status(500).send({ error: 'Failed to fetch routine progress' });
+  }
+});
+
+fastify.post('/api/routines/:routineId/steps/:stepId/tick', async (request, reply) => {
+  const { routineId, stepId } = request.params;
+  const body = request.body || {};
+  const date = body.date || getTodayLocalDateString();
+  try {
+    if (!assertTodayOr400(date, reply)) return;
+    const routine = loadRoutineOr404(routineId, reply);
+    if (!routine) return;
+    const membership = db.prepare(
+      'SELECT id FROM routine_steps WHERE routine_id = ? AND step_id = ?'
+    ).get(routineId, stepId);
+    if (!membership) {
+      return reply.status(404).send({ error: 'Step is not in this routine' });
+    }
+    const userId = resolveRoutineUserId(routine, body, reply);
+    if (userId === null) return;
+
+    db.prepare(
+      'INSERT OR IGNORE INTO routine_progress (routine_id, step_id, date) VALUES (?, ?, ?)'
+    ).run(routineId, stepId, date);
+
+    const status = currentProgress(routineId, date);
+    const result = {
+      success: true,
+      date,
+      total_steps: status.total,
+      done_steps: status.done,
+      complete: status.complete,
+      recorded_completion: false,
+      streak_bonus_awarded: false,
+      current_streak: routine.current_streak,
+    };
+
+    if (!status.complete) return result;
+
+    // Every step ticked — write the append-only completion row. The partial
+    // unique index guarantees at most one per (routine, date), so re-hits
+    // (later taps after the last one) don't advance the streak again.
+    const insert = db.prepare(
+      "INSERT OR IGNORE INTO chore_history (user_id, chore_schedule_id, routine_id, date, clam_value, title, kind) VALUES (?, NULL, ?, ?, 0, ?, 'routine')"
+    ).run(userId, routineId, date, routine.name);
+
+    if (insert.changes === 0) {
+      // Already recorded earlier today. Nothing else to do — the streak was
+      // advanced by the original completion; recording it again would double
+      // the bonus.
+      result.recorded_completion = true;
+      return result;
+    }
+
+    const newStreak = computeStreakForCompletion({
+      crontab: routine.crontab,
+      lastCompletionDate: routine.last_completion_date,
+      lastStreak: routine.current_streak,
+      completionDate: date,
+    });
+    db.prepare('UPDATE routines SET current_streak = ?, last_completion_date = ? WHERE id = ?')
+      .run(newStreak, date, routineId);
+
+    result.recorded_completion = true;
+    result.current_streak = newStreak;
+
+    if (routine.streak_bonus_every > 0
+      && routine.streak_bonus_clams > 0
+      && newStreak % routine.streak_bonus_every === 0) {
+      // routine_id stays NULL on streak rows — the completion-uniqueness
+      // partial index is scoped by routine_id IS NOT NULL, and a non-null
+      // routine_id here would collide with today's completion row on that
+      // index. Streak rows are still traceable via kind + title.
+      db.prepare(
+        "INSERT INTO chore_history (user_id, chore_schedule_id, routine_id, date, clam_value, title, kind) VALUES (?, NULL, NULL, ?, ?, ?, 'streak')"
+      ).run(userId, date, routine.streak_bonus_clams, `${routine.name} streak`);
+      result.streak_bonus_awarded = true;
+      result.streak_bonus_clams = routine.streak_bonus_clams;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error ticking routine step:', error);
+    reply.status(500).send({ error: 'Failed to tick routine step' });
+  }
+});
+
+fastify.delete('/api/routines/:routineId/steps/:stepId/tick', async (request, reply) => {
+  const { routineId, stepId } = request.params;
+  const date = (request.query && request.query.date) || getTodayLocalDateString();
+  try {
+    if (!assertTodayOr400(date, reply)) return;
+    const routine = loadRoutineOr404(routineId, reply);
+    if (!routine) return;
+    // Never touch chore_history. A recorded completion is final; unticking a
+    // step just clears the progress row so the routine card shows the box
+    // empty again. Clams stay awarded, the streak stays advanced.
+    db.prepare(
+      'DELETE FROM routine_progress WHERE routine_id = ? AND step_id = ? AND date = ?'
+    ).run(routineId, stepId, date);
+    const status = currentProgress(routineId, date);
+    return {
+      success: true,
+      date,
+      total_steps: status.total,
+      done_steps: status.done,
+      complete: status.complete,
+    };
+  } catch (error) {
+    console.error('Error unticking routine step:', error);
+    reply.status(500).send({ error: 'Failed to untick routine step' });
+  }
+});
+
+// --- Calendar-shape occurrences ---
+// Synth routine occurrences in the same shape the events feed uses so the
+// calendar widget can show them beside real events. Tagged source:'routine'
+// and routine_id so a tap can branch into the routine UI.
+fastify.get('/api/routine-occurrences', async (request, reply) => {
+  const { start, end, user_id } = request.query || {};
+  if (!start || !end) {
+    return reply.status(400).send({ error: 'start and end query params are required (YYYY-MM-DD)' });
+  }
+  try {
+    const conditions = ['visible = 1'];
+    const params = [];
+    if (user_id !== undefined) {
+      conditions.push('user_id = ?');
+      params.push(user_id);
+    }
+    const routines = db.prepare(
+      `SELECT * FROM routines WHERE ${conditions.join(' AND ')}`
+    ).all(...params);
+    const out = [];
+    for (const routine of routines) {
+      const dates = enumerateScheduledDates(routine.crontab, start, end);
+      for (const d of dates) {
+        const [year, month, day] = d.split('-').map(Number);
+        let startInstant;
+        let endInstant;
+        if (routine.start_time) {
+          const [sh, sm] = routine.start_time.split(':').map(Number);
+          startInstant = new Date(year, month - 1, day, sh, sm, 0, 0);
+        } else {
+          startInstant = new Date(year, month - 1, day, 0, 0, 0, 0);
+        }
+        if (routine.end_time) {
+          const [eh, em] = routine.end_time.split(':').map(Number);
+          endInstant = new Date(year, month - 1, day, eh, em, 0, 0);
+        } else if (routine.start_time) {
+          // Start-only routines get a 30 min block so the calendar UI can
+          // render a visible tap target.
+          endInstant = new Date(startInstant.getTime() + 30 * 60 * 1000);
+        } else {
+          endInstant = new Date(year, month - 1, day, 23, 59, 59, 0);
+        }
+        out.push({
+          user_id: routine.user_id,
+          summary: routine.name,
+          start: startInstant.toISOString(),
+          end: endInstant.toISOString(),
+          all_day: !routine.start_time && !routine.end_time,
+          source: 'routine',
+          routine_id: routine.id,
+          icon: routine.icon || null,
+          date: d,
+        });
+      }
+    }
+    out.sort((a, b) => a.start.localeCompare(b.start));
+    return out;
+  } catch (error) {
+    console.error('Error building routine occurrences:', error);
+    reply.status(500).send({ error: 'Failed to build routine occurrences' });
+  }
+});
+
+// --- Cross-namespace autocomplete ---
+// One endpoint feeds the admin editor's task-title picker: existing step
+// titles and existing chore titles, each with its emoji. Tagged with source
+// so the editor can dedupe or badge them.
+fastify.get('/api/task-titles', async (request, reply) => {
+  try {
+    const steps = db.prepare('SELECT title, icon FROM steps').all();
+    const chores = db.prepare('SELECT title, icon FROM chores').all();
+    const out = [
+      ...steps.map((s) => ({ title: s.title, icon: s.icon || null, source: 'step' })),
+      ...chores.map((c) => ({ title: c.title, icon: c.icon || null, source: 'chore' })),
+    ];
+    out.sort((a, b) => a.title.localeCompare(b.title));
+    return out;
+  } catch (error) {
+    console.error('Error building task-title autocomplete:', error);
+    reply.status(500).send({ error: 'Failed to build task-title autocomplete' });
   }
 });
 
