@@ -1,0 +1,131 @@
+{
+  "tab": {
+    "heading": "Rutinas",
+    "help": "Una rutina es una lista de pasos que el niño completa en orden — por ejemplo, 'Empezar el día' con cama, dientes, ropa y mochila. Van junto a las tareas y se completan marcando cada paso."
+  },
+  "list": {
+    "newRoutine": "Nueva rutina",
+    "refresh": "Actualizar",
+    "noRoutines": "Aún no hay rutinas. Empieza desde una plantilla o crea una nueva.",
+    "name": "Nombre",
+    "owner": "Asignada a",
+    "days": "Días",
+    "startTime": "Empieza",
+    "steps": "Pasos",
+    "visible": "Visible",
+    "actions": "Acciones",
+    "unassigned": "Cualquier niño",
+    "stepCount_one": "{{count}} paso",
+    "stepCount_other": "{{count}} pasos",
+    "edit": "Editar rutina",
+    "delete": "Eliminar rutina",
+    "everyDay": "Todos los días",
+    "weekdays": "Entre semana",
+    "weekends": "Fines de semana"
+  },
+  "editor": {
+    "createTitle": "Nueva rutina",
+    "editTitle": "Editar rutina",
+    "nameLabel": "Nombre de la rutina",
+    "namePlaceholder": "p. ej. Empezar el día",
+    "ownerLabel": "Asignada a",
+    "ownerAny": "Cualquier niño (sin asignar)",
+    "iconLabel": "Icono",
+    "scheduleHeading": "Cuándo aparece",
+    "daysLabel": "Días de la semana",
+    "daysHelp": "Elige los días en los que aparece esta rutina.",
+    "selectAtLeastOneDay": "Elige al menos un día.",
+    "startTimeLabel": "Hora de inicio (opcional)",
+    "endTimeLabel": "Hora de fin (opcional)",
+    "timesHelp": "Déjalo en blanco para mostrarla todo el día.",
+    "streakHeading": "Bonus por racha",
+    "streakEveryLabel": "Bonus cada N veces",
+    "streakClamsLabel": "Clams del bonus",
+    "streakHelp": "Deja ambos en blanco si no quieres bonus.",
+    "visibleLabel": "Visible en el panel",
+    "stepsHeading": "Pasos",
+    "stepsHelp": "Añade los pasos que hay que marcar, en orden.",
+    "noSteps": "Aún no hay pasos. Añade uno abajo.",
+    "addStepLabel": "Añadir paso",
+    "addStepPlaceholder": "Escribe un paso o elige uno que ya usaste…",
+    "addStepButton": "Añadir",
+    "libraryHint": "Sugerencias entre pasos y tareas que ya tienes.",
+    "moveStepUp": "Subir paso",
+    "moveStepDown": "Bajar paso",
+    "editStep": "Editar paso",
+    "removeStep": "Quitar de esta rutina",
+    "sourceStep": "Paso",
+    "sourceChore": "Tarea",
+    "cancel": "Cancelar",
+    "save": "Guardar rutina",
+    "create": "Crear rutina",
+    "saving": "Guardando…"
+  },
+  "stepEditor": {
+    "title": "Editar paso",
+    "titleField": "Título",
+    "usedInRoutines_one": "Editar cambia este paso en {{count}} rutina que lo usa.",
+    "usedInRoutines_other": "Editar cambia este paso en {{count}} rutinas que lo usan.",
+    "usedInNone": "Este paso aún no se usa en otra rutina.",
+    "warning": "Los pasos se comparten — un cambio aquí aparece en todas partes.",
+    "cancel": "Cancelar",
+    "save": "Guardar cambios"
+  },
+  "delete": {
+    "title": "Eliminar rutina",
+    "prompt": "¿Eliminar '{{name}}'?",
+    "warning": "Se borran la rutina y su historial. Los pasos se quedan en la biblioteca."
+  },
+  "templates": {
+    "heading": "Empieza con una plantilla",
+    "help": "Elige una para rellenar el editor. Puedes cambiar todo antes de guardar.",
+    "use": "Usar plantilla",
+    "morning": {
+      "name": "Empezar el día",
+      "steps": {
+        "bed": "Hacer la cama",
+        "teeth": "Lavarse los dientes",
+        "dressed": "Vestirse",
+        "backpack": "Preparar la mochila"
+      }
+    },
+    "bedtime": {
+      "name": "Hora de dormir",
+      "steps": {
+        "pyjamas": "Ponerse el pijama",
+        "teeth": "Lavarse los dientes",
+        "tidy": "Recoger",
+        "story": "Cuento"
+      }
+    },
+    "afterschool": {
+      "name": "Al volver del cole",
+      "steps": {
+        "bag": "Vaciar la mochila",
+        "lunchbox": "Sacar la fiambrera",
+        "homework": "Deberes"
+      }
+    }
+  },
+  "messages": {
+    "created": "Rutina creada.",
+    "updated": "Rutina actualizada.",
+    "deleted": "Rutina eliminada.",
+    "stepAdded": "Paso añadido.",
+    "stepRemoved": "Paso quitado.",
+    "stepUpdated": "Paso actualizado.",
+    "reorderFailed": "No se pudieron reordenar los pasos.",
+    "saveFailed": "No se pudo guardar la rutina.",
+    "loadFailed": "No se pudieron cargar las rutinas.",
+    "templateApplied": "Plantilla cargada — revisa y guarda."
+  },
+  "days": {
+    "sun": "Dom",
+    "mon": "Lun",
+    "tue": "Mar",
+    "wed": "Mié",
+    "thu": "Jue",
+    "fri": "Vie",
+    "sat": "Sáb"
+  }
+}

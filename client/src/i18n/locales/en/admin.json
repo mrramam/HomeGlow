@@ -247,6 +247,7 @@
   "chores": {
     "history": "History",
     "settings": "Settings",
+    "routines": "Routines",
     "rewards": "Rewards",
     "dailyReward": "Daily Completion Clam Reward",
     "dailyRewardHelp": "Clams awarded when a user completes all their daily chores",
