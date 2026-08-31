@@ -3,6 +3,7 @@ export const BASE_WIDGET_SETTINGS = {
   calendar: { enabled: false },
   photos: { enabled: false },
   weather: { enabled: false },
+  routines: { enabled: false },
 };
 
 export const normalizeWidgetSettings = (raw, defaults = BASE_WIDGET_SETTINGS) => ({
@@ -12,4 +13,5 @@ export const normalizeWidgetSettings = (raw, defaults = BASE_WIDGET_SETTINGS) =>
   calendar: { ...defaults.calendar, ...(raw?.calendar || {}) },
   photos: { ...defaults.photos, ...(raw?.photos || {}) },
   weather: { ...defaults.weather, ...(raw?.weather || {}) },
+  routines: { ...defaults.routines, ...(raw?.routines || {}) },
 });
