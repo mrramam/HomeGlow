@@ -1,0 +1,35 @@
+{
+  "widget": {
+    "title": "Rutinas",
+    "titleFor": "Rutinas de {{name}}",
+    "remainingChip": "Faltan {{count}}",
+    "loadFailed": "No se pudieron cargar las rutinas.",
+    "nothingDue": "Hoy {{name}} no tiene rutinas.",
+    "nothingDueHint": "Disfruta del rato tranquilo.",
+    "allDoneHeading": "¡{{name}} terminó todo!",
+    "allDoneSubtitle": "Todas las rutinas de hoy están hechas.",
+    "notBound": "Esta pestaña aún no está asignada a un niño.",
+    "notBoundHint": "Asigna un niño a esta pestaña para ver sus rutinas aquí.",
+    "openRoutineAria": "Abrir {{title}}",
+    "stepsProgress": "{{done}} de {{total}} pasos",
+    "notFound": "Esta rutina ya no está disponible."
+  },
+  "checklist": {
+    "doneToday": "Hecho hoy",
+    "progressLabel": "{{done}} de {{total}} pasos hechos",
+    "progressAria": "Progreso de pasos: {{done}} de {{total}}",
+    "noSteps": "Esta rutina aún no tiene pasos.",
+    "tickAria": "Marcar {{title}} como hecho",
+    "untickAria": "Deshacer {{title}}",
+    "tickFailed": "No se pudo actualizar este paso. Inténtalo de nuevo."
+  },
+  "calendar": {
+    "showRoutinesToggle": "Mostrar rutinas en la vista semanal",
+    "showRoutinesHelp": "Aparecerá una tira delgada por cada rutina programada en la vista semanal. La vista mensual no las muestra.",
+    "byEnd": "hasta las {{time}}",
+    "openStripAria": "Abrir {{title}}"
+  },
+  "celebration": {
+    "streakMilestone": "Racha de {{count}} días"
+  }
+}

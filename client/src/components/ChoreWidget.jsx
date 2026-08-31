@@ -43,6 +43,7 @@ import { formatTime } from '../utils/dateUtils.js';
 import PrizeCelebration from './PrizeCelebration.jsx';
 import ChoreCelebration from './ChoreCelebration.jsx';
 import ChoreIconPicker from './ChoreIconPicker.jsx';
+import { acquireCelebration, releaseCelebration } from '../utils/celebrationLock.js';
 
 const USERS_UPDATED_EVENT = 'homeglow:users-updated';
 
@@ -106,8 +107,26 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
   const longPressFiredRef = useRef(false);
   const longPressStartRef = useRef(null);
   const choreMenuOpenedAtRef = useRef(0);
+  // Track which celebration kinds this component holds so unmount cleanup can
+  // release only when we are the rightful owner — an unconditional release
+  // would clear a lock held by a different widget instance.
+  const prizeHoldingRef = useRef(false);
+  const choreHoldingRef = useRef(false);
 
   const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+  useEffect(() => {
+    return () => {
+      if (prizeHoldingRef.current) {
+        releaseCelebration('prize');
+        prizeHoldingRef.current = false;
+      }
+      if (choreHoldingRef.current) {
+        releaseCelebration('chore');
+        choreHoldingRef.current = false;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -187,12 +206,18 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
         .map((p) => p.username)
         .filter(Boolean);
       const user = users.find((u) => u.id === message.payload.userId);
-      setCelebration({
-        username: participantNames.length > 1
-          ? participantNames.join(' & ')
-          : (participantNames[0] || user?.username || 'Someone'),
-        prizeName: message.payload.prizeName,
-      });
+      // Coordinate with the RoutineWidget's celebrations: a routine streak
+      // milestone reaching for the same overlay must not stack behind us,
+      // and a smaller wordless burst gets suppressed while this plays.
+      if (acquireCelebration('prize')) {
+        prizeHoldingRef.current = true;
+        setCelebration({
+          username: participantNames.length > 1
+            ? participantNames.join(' & ')
+            : (participantNames[0] || user?.username || 'Someone'),
+          prizeName: message.payload.prizeName,
+        });
+      }
       if (soundEnabled) {
         try {
           playSound(soundUrl('chime.wav'), 0.8);
@@ -225,6 +250,12 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
     const key = `${userId}:${getTodayDateString()}`;
     if (celebratedDaysRef.current.has(key)) return;
     celebratedDaysRef.current.add(key);
+
+    // A prize-tier overlay (chore-widget or routine-widget) elsewhere on the
+    // display wins the slot; the smaller wordless burst is suppressed rather
+    // than stacked behind it.
+    if (!acquireCelebration('chore')) return;
+    choreHoldingRef.current = true;
 
     setChoreCelebration({ id: key });
     if (soundEnabled) {
@@ -1505,14 +1536,22 @@ const ChoreWidget = ({ refreshNonce = 0 }) => {
           <PrizeCelebration
             username={celebration.username}
             prizeName={celebration.prizeName}
-            onDismiss={() => setCelebration(null)}
+            onDismiss={() => {
+              setCelebration(null);
+              prizeHoldingRef.current = false;
+              releaseCelebration('prize');
+            }}
           />
         )}
 
         {choreCelebration && (
           <ChoreCelebration
             key={choreCelebration.id}
-            onDismiss={() => setChoreCelebration(null)}
+            onDismiss={() => {
+              setChoreCelebration(null);
+              choreHoldingRef.current = false;
+              releaseCelebration('chore');
+            }}
           />
         )}
 

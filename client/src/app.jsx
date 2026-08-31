@@ -32,6 +32,7 @@ const loadCalendarWidget = () => import('./components/CalendarWidget.jsx');
 const loadPhotoWidget = () => import('./components/PhotoWidget.jsx');
 const loadWeatherWidget = () => import('./components/WeatherWidget.jsx');
 const loadChoreWidget = () => import('./components/ChoreWidget.jsx');
+const loadRoutineWidget = () => import('./components/RoutineWidget.jsx');
 const loadTabIconModal = () => import('./components/TabIconModal.jsx');
 const loadScreenSaver = () => import('./components/ScreenSaver.jsx');
 const loadVacationScreensaver = () => import('./components/VacationScreensaver.jsx');
@@ -73,6 +74,7 @@ const CalendarWidget = lazy(loadCalendarWidget);
 const PhotoWidget = lazy(loadPhotoWidget);
 const WeatherWidget = lazy(loadWeatherWidget);
 const ChoreWidget = lazy(loadChoreWidget);
+const RoutineWidget = lazy(loadRoutineWidget);
 const TabIconModal = lazy(loadTabIconModal);
 const ScreenSaver = lazy(loadScreenSaver);
 const VacationScreensaver = lazy(loadVacationScreensaver);
@@ -601,6 +603,7 @@ const App = () => {
     const warmLoaders = [
       !!widgetSettings?.calendar?.enabled && loadCalendarWidget,
       !!widgetSettings?.chores?.enabled && loadChoreWidget,
+      !!widgetSettings?.routines?.enabled && loadRoutineWidget,
       !!widgetSettings?.weather?.enabled && loadWeatherWidget,
       !!widgetSettings?.photos?.enabled && loadPhotoWidget,
       !!screensaverSettings?.enabled && (vacationModeSettings?.enabled ? loadVacationScreensaver : loadScreenSaver),
@@ -618,6 +621,7 @@ const App = () => {
   }, [
     widgetSettings?.calendar?.enabled,
     widgetSettings?.chores?.enabled,
+    widgetSettings?.routines?.enabled,
     widgetSettings?.weather?.enabled,
     widgetSettings?.photos?.enabled,
     screensaverSettings?.enabled,
@@ -856,6 +860,26 @@ const App = () => {
         content: (
           <Suspense fallback={<WidgetLoadingFallback label="chores" />}>
             <ChoreWidget />
+          </Suspense>
+        ),
+      });
+    }
+
+    if (widgetSettings.routines.enabled && isWidgetAssignedToTab('routines', activeTab)) {
+      const dbLayout = getWidgetLayoutForTab('routines', activeTab);
+      result.push({
+        id: 'routines-widget',
+        defaultPosition: { x: 0, y: 9 },
+        defaultSize: { width: 4, height: 4 },
+        minWidth: 2,
+        minHeight: 2,
+        savedLayout: dbLayout,
+        content: (
+          <Suspense fallback={<WidgetLoadingFallback label="routines" />}>
+            <RoutineWidget
+              activeTab={activeTab}
+              activeTabConfigJson={tabs.find((tab) => tab.number === activeTab)?.config_json || null}
+            />
           </Suspense>
         ),
       });
