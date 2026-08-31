@@ -247,6 +247,7 @@
   "chores": {
     "history": "Historial",
     "settings": "Ajustes",
+    "routines": "Rutinas",
     "rewards": "Recompensas",
     "dailyReward": "Recompensa diaria en almejas",
     "dailyRewardHelp": "Almejas que se dan cuando alguien completa todas sus tareas del día",

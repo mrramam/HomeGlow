@@ -1,0 +1,131 @@
+{
+  "tab": {
+    "heading": "Routines",
+    "help": "A routine is a named checklist a child works through in order — for example, 'School day start' with bed, teeth, dressed, backpack. Routines sit beside chores and are completed by ticking every step."
+  },
+  "list": {
+    "newRoutine": "New Routine",
+    "refresh": "Refresh",
+    "noRoutines": "No routines yet. Start from a template below, or create one from scratch.",
+    "name": "Name",
+    "owner": "Assigned to",
+    "days": "Days",
+    "startTime": "Starts",
+    "steps": "Steps",
+    "visible": "Visible",
+    "actions": "Actions",
+    "unassigned": "Any child",
+    "stepCount_one": "{{count}} step",
+    "stepCount_other": "{{count}} steps",
+    "edit": "Edit routine",
+    "delete": "Delete routine",
+    "everyDay": "Every day",
+    "weekdays": "Weekdays",
+    "weekends": "Weekends"
+  },
+  "editor": {
+    "createTitle": "New routine",
+    "editTitle": "Edit routine",
+    "nameLabel": "Routine name",
+    "namePlaceholder": "e.g. School day start",
+    "ownerLabel": "Assigned to",
+    "ownerAny": "Any child (unassigned)",
+    "iconLabel": "Icon",
+    "scheduleHeading": "When it runs",
+    "daysLabel": "Days of the week",
+    "daysHelp": "Pick the days this routine should appear.",
+    "selectAtLeastOneDay": "Pick at least one day.",
+    "startTimeLabel": "Start time (optional)",
+    "endTimeLabel": "End time (optional)",
+    "timesHelp": "Leave blank to show the routine all day.",
+    "streakHeading": "Streak bonus",
+    "streakEveryLabel": "Bonus every N completions",
+    "streakClamsLabel": "Bonus clams",
+    "streakHelp": "Leave both blank for no streak bonus.",
+    "visibleLabel": "Visible on the dashboard",
+    "stepsHeading": "Steps",
+    "stepsHelp": "Add each step the child should tick off, in order.",
+    "noSteps": "No steps yet. Add one below.",
+    "addStepLabel": "Add a step",
+    "addStepPlaceholder": "Type a step name, or pick one you've used before…",
+    "addStepButton": "Add",
+    "libraryHint": "Suggestions include steps and chores you already have.",
+    "moveStepUp": "Move step up",
+    "moveStepDown": "Move step down",
+    "editStep": "Edit step",
+    "removeStep": "Remove from this routine",
+    "sourceStep": "Step",
+    "sourceChore": "Chore",
+    "cancel": "Cancel",
+    "save": "Save routine",
+    "create": "Create routine",
+    "saving": "Saving…"
+  },
+  "stepEditor": {
+    "title": "Edit step",
+    "titleField": "Title",
+    "usedInRoutines_one": "Editing changes this step in {{count}} routine that uses it.",
+    "usedInRoutines_other": "Editing changes this step in {{count}} routines that use it.",
+    "usedInNone": "This step isn't used in any other routine yet.",
+    "warning": "Steps are shared — a change here shows up everywhere.",
+    "cancel": "Cancel",
+    "save": "Save changes"
+  },
+  "delete": {
+    "title": "Delete routine",
+    "prompt": "Delete '{{name}}'?",
+    "warning": "The routine and its assignment history are removed. Steps stay in the library."
+  },
+  "templates": {
+    "heading": "Start from a template",
+    "help": "Pick one to pre-fill the editor. You can still change everything before saving.",
+    "use": "Use template",
+    "morning": {
+      "name": "School day start",
+      "steps": {
+        "bed": "Make bed",
+        "teeth": "Brush teeth",
+        "dressed": "Get dressed",
+        "backpack": "Pack backpack"
+      }
+    },
+    "bedtime": {
+      "name": "Bedtime",
+      "steps": {
+        "pyjamas": "Put on pyjamas",
+        "teeth": "Brush teeth",
+        "tidy": "Tidy up",
+        "story": "Story time"
+      }
+    },
+    "afterschool": {
+      "name": "After school",
+      "steps": {
+        "bag": "Unpack bag",
+        "lunchbox": "Lunchbox out",
+        "homework": "Homework"
+      }
+    }
+  },
+  "messages": {
+    "created": "Routine created.",
+    "updated": "Routine updated.",
+    "deleted": "Routine deleted.",
+    "stepAdded": "Step added.",
+    "stepRemoved": "Step removed.",
+    "stepUpdated": "Step updated.",
+    "reorderFailed": "Could not reorder steps.",
+    "saveFailed": "Could not save the routine.",
+    "loadFailed": "Could not load routines.",
+    "templateApplied": "Template loaded — review and save."
+  },
+  "days": {
+    "sun": "Sun",
+    "mon": "Mon",
+    "tue": "Tue",
+    "wed": "Wed",
+    "thu": "Thu",
+    "fri": "Fri",
+    "sat": "Sat"
+  }
+}

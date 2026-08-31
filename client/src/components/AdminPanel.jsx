@@ -73,6 +73,7 @@ import { getDeviceApiBase, getDeviceName, setDeviceName } from '../utils/deviceN
 import PinModal from './PinModal';
 import ChoreSchedulesTab from './ChoreSchedulesTab';
 import ChoreHistoryTab from './ChoreHistoryTab';
+import RoutinesTab from './RoutinesTab';
 import TabIconModal from './TabIconModal';
 import DeleteConfirmationDialog from './DeleteConfirmationDialog';
 import AdminFormSection from './AdminFormSection';
@@ -3392,6 +3393,7 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged }) => {
                 <Tab label={t('admin:users.chores')} />
                 <Tab label={t('admin:chores.history')} />
                 <Tab label={t('admin:chores.settings')} />
+                <Tab label={t('admin:chores.routines')} />
               </Tabs>
             </Box>
             {choresSubTab === 0 && (
@@ -3399,6 +3401,9 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged }) => {
             )}
             {choresSubTab === 1 && (
               <ChoreHistoryTab />
+            )}
+            {choresSubTab === 3 && (
+              <RoutinesTab saveMessage={saveMessage} setSaveMessage={setSaveMessage} />
             )}
             {choresSubTab === 2 && (
               <>
